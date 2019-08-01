@@ -19,6 +19,7 @@ package org.apache.zookeeper.inspector.manager;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -53,6 +54,7 @@ import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.ZooKeeper.States;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
+import org.apache.zookeeper.inspector.ZooInspectorUtil;
 import org.apache.zookeeper.inspector.encryption.BasicDataEncryptionManager;
 import org.apache.zookeeper.inspector.encryption.DataEncryptionManager;
 import org.apache.zookeeper.inspector.logger.LoggerFactory;
@@ -387,9 +389,14 @@ public class ZooInspectorManagerImpl implements ZooInspectorManager
           nodePath = "/";
         }
         Stat s = zooKeeper.exists(nodePath, false);
-        if (s != null)
-        {
-          return this.encryptionManager.decryptData(zooKeeper.getData(nodePath, false, s));
+        if (s != null) {
+          byte[] rawData = zooKeeper.getData(nodePath, false, s);
+          // uncompress data if it is compressed
+          if (ZooInspectorUtil.isCompressed(rawData)) {
+            return this.encryptionManager
+                .decryptData(ZooInspectorUtil.uncompress(new ByteArrayInputStream(rawData)));
+          }
+          return this.encryptionManager.decryptData(rawData);
         }
       }
       catch (Exception e)
