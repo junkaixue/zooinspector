@@ -46,12 +46,24 @@ import javax.swing.JTextField;
 
 import org.apache.zookeeper.inspector.logger.LoggerFactory;
 import org.apache.zookeeper.inspector.manager.Pair;
+import org.apache.zookeeper.inspector.manager.ZooInspectorManagerImpl;
+import org.apache.zookeeper.inspector.ssh.SshTunnelConfig;
+import org.apache.zookeeper.inspector.ssh.SshTunnelManager;
 
 /**
  * The connection properties dialog. This is used to determine the settings for
  * connecting to a zookeeper instance
  */
 public class ZooInspectorConnectionPropertiesDialog extends JDialog {
+
+    /**
+     * The key used for the selected ssh tunnel in the connection properties
+     */
+    public static final String SSH_TUNNEL = "sshTunnel";
+    /**
+     * The ssh tunnel selection meaning no tunnel should be used
+     */
+    public static final String SSH_TUNNEL_NONE = "None";
 
     private final HashMap<String, JComponent> components;
 
@@ -202,6 +214,49 @@ public class ZooInspectorConnectionPropertiesDialog extends JDialog {
                 options.add(combo, c2);
                 components.put(entry.getKey(), combo);
             }
+            i++;
+        }
+        List<String> tunnelNames = SshTunnelManager.getInstance()
+                .getTunnelNames();
+        if (!tunnelNames.isEmpty()) {
+            int rowPos = 2 * i + 1;
+            JLabel label = new JLabel("SSH Tunnel");
+            GridBagConstraints c1 = new GridBagConstraints();
+            c1.gridx = 0;
+            c1.gridy = rowPos;
+            c1.gridwidth = 1;
+            c1.gridheight = 1;
+            c1.weightx = 0;
+            c1.weighty = 0;
+            c1.anchor = GridBagConstraints.WEST;
+            c1.fill = GridBagConstraints.HORIZONTAL;
+            c1.insets = new Insets(5, 5, 5, 5);
+            options.add(label, c1);
+            List<String> choices = new java.util.ArrayList<String>();
+            choices.add(SSH_TUNNEL_NONE);
+            choices.addAll(tunnelNames);
+            final JComboBox tunnelCombo = new JComboBox(choices
+                    .toArray(new String[choices.size()]));
+            tunnelCombo.setToolTipText("Tunnels configured in ~/.zooinspector/sshTunnels.cfg. "
+                    + "Selecting one sets the connect string to the tunnel's local port automatically.");
+            tunnelCombo.addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    applyTunnelSelection();
+                }
+            });
+            GridBagConstraints c2 = new GridBagConstraints();
+            c2.gridx = 2;
+            c2.gridy = rowPos;
+            c2.gridwidth = 1;
+            c2.gridheight = 1;
+            c2.weightx = 0;
+            c2.weighty = 0;
+            c2.anchor = GridBagConstraints.WEST;
+            c2.fill = GridBagConstraints.HORIZONTAL;
+            c2.insets = new Insets(5, 5, 5, 5);
+            options.add(tunnelCombo, c2);
+            components.put(SSH_TUNNEL, tunnelCombo);
             i++;
         }
         loadConnectionProps(lastConnectionProps);
@@ -359,6 +414,39 @@ public class ZooInspectorConnectionPropertiesDialog extends JDialog {
                 }
             }
         }
+        applyTunnelSelection();
+    }
+
+    /**
+     * When an ssh tunnel is selected, the connect string is derived from the
+     * tunnel's local port and requires no user input: fill it in and make the
+     * field read-only. Selecting "None" makes it editable again.
+     */
+    private void applyTunnelSelection() {
+        JComponent tunnelComponent = components.get(SSH_TUNNEL);
+        JComponent hostsComponent = components
+                .get(ZooInspectorManagerImpl.CONNECT_STRING);
+        if (tunnelComponent == null || hostsComponent == null) {
+            return;
+        }
+        Object selected = ((JComboBox) tunnelComponent).getSelectedItem();
+        String tunnelName = selected == null ? SSH_TUNNEL_NONE : selected
+                .toString();
+        boolean tunnelSelected = !SSH_TUNNEL_NONE.equals(tunnelName);
+        if (tunnelSelected) {
+            SshTunnelConfig tunnel = SshTunnelManager.getInstance().getTunnel(
+                    tunnelName);
+            if (tunnel != null) {
+                String localConnectString = tunnel.getLocalConnectString();
+                if (hostsComponent instanceof JTextField) {
+                    ((JTextField) hostsComponent).setText(localConnectString);
+                } else if (hostsComponent instanceof JComboBox) {
+                    ((JComboBox) hostsComponent)
+                            .setSelectedItem(localConnectString);
+                }
+            }
+        }
+        hostsComponent.setEnabled(!tunnelSelected);
     }
 
     private Properties getConnectionProps() {
@@ -369,9 +457,13 @@ public class ZooInspectorConnectionPropertiesDialog extends JDialog {
             if (component instanceof JTextField) {
                 value = ((JTextField) component).getText();
             } else if (component instanceof JComboBox) {
-              // value = ((JComboBox) component).getSelectedItem().toString();
-              value = ((JComboBox) component).getEditor().getItem().toString();
-              // System.out.println("getConnectionProps#value: " + value);
+              JComboBox combo = (JComboBox) component;
+              if (combo.isEditable()) {
+                value = combo.getEditor().getItem().toString();
+              } else {
+                Object selected = combo.getSelectedItem();
+                value = selected == null ? "" : selected.toString();
+              }
             }
             connectionProps.put(entry.getKey(), value);
         }

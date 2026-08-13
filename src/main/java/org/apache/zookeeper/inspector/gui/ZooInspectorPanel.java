@@ -38,6 +38,8 @@ import org.apache.zookeeper.ZooKeeper.States;
 import org.apache.zookeeper.inspector.gui.nodeviewer.ZooInspectorNodeViewer;
 import org.apache.zookeeper.inspector.logger.LoggerFactory;
 import org.apache.zookeeper.inspector.manager.ZooInspectorManager;
+import org.apache.zookeeper.inspector.manager.ZooInspectorManagerImpl;
+import org.apache.zookeeper.inspector.ssh.SshTunnelManager;
 
 /**
  * The parent {@link JPanel} for the whole application
@@ -271,6 +273,20 @@ public class ZooInspectorPanel extends JPanel implements
 
             @Override
             protected Boolean doInBackground() throws Exception {
+                String tunnelName = connectionProps
+                        .getProperty(ZooInspectorConnectionPropertiesDialog.SSH_TUNNEL);
+                if (tunnelName != null
+                        && !tunnelName.isEmpty()
+                        && !ZooInspectorConnectionPropertiesDialog.SSH_TUNNEL_NONE
+                                .equals(tunnelName)) {
+                    // the connect string is derived from the tunnel config;
+                    // whatever is in the dialog field is overwritten
+                    String localConnectString = SshTunnelManager.getInstance()
+                            .ensureTunnel(tunnelName);
+                    connectionProps.setProperty(
+                            ZooInspectorManagerImpl.CONNECT_STRING,
+                            localConnectString);
+                }
                 zooInspectorManager.setLastConnectionProps(connectionProps);
                 return zooInspectorManager.connect(connectionProps);
             }
@@ -306,6 +322,11 @@ public class ZooInspectorPanel extends JPanel implements
                             .error(
                                     "Error occurred while connecting to ZooKeeper server",
                                     e);
+                    Throwable cause = e.getCause() == null ? e : e.getCause();
+                    JOptionPane.showMessageDialog(ZooInspectorPanel.this,
+                            "Error occurred while connecting to ZooKeeper server:\n"
+                                    + cause.getMessage(), "Error",
+                            JOptionPane.ERROR_MESSAGE);
                 } catch (IOException e) {
                     LoggerFactory
                       .getLogger()
@@ -334,7 +355,12 @@ public class ZooInspectorPanel extends JPanel implements
 
             @Override
             protected Boolean doInBackground() throws Exception {
-                return ZooInspectorPanel.this.zooInspectorManager.disconnect();
+                boolean disconnected = ZooInspectorPanel.this.zooInspectorManager
+                        .disconnect();
+                if (disconnected) {
+                    SshTunnelManager.getInstance().stopAll();
+                }
+                return disconnected;
             }
 
             @Override
